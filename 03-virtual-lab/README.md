@@ -30,16 +30,28 @@ This is also the environment every case in the [troubleshooting log](../01-troub
 
 ---
 
-## Build summary
+## Two implementations
 
-| Component | Implementation |
-|---|---|
-| Hypervisor | `[VirtualBox / VMware / Proxmox]` |
-| Router / firewall | pfSense CE `[version]` |
-| Segmentation | `[VirtualBox internal networks / 802.1Q tagging on a managed switch]` |
-| Clients | `[OS and count]` |
-| DHCP | pfSense, scoped per interface |
-| DNS | pfSense DNS Resolver (unbound) with host overrides for `lab.local` |
+The same design is built twice, because each implementation demonstrates something the other can't.
+
+| | Packet Tracer | Namespace lab |
+|---|---|---|
+| **What** | Cisco 2911 router, 2960 switch, three VLANs | Linux network namespaces, veth pairs, bridges |
+| **Segmentation** | 802.1Q trunk, router-on-a-stick subinterfaces | One bridge per segment, root namespace routing |
+| **DHCP** | IOS `ip dhcp pool` per VLAN | dnsmasq per bridge |
+| **Policy** | Extended ACL with wildcard masks | nftables forward chain, stateful |
+| **Demonstrates** | Cisco IOS configuration, VLAN tagging | Real command output, real packet captures |
+| **Artifacts** | [`packet-tracer/lab.pkt`](./packet-tracer/), device configs | [`build-lab.sh`](./build-lab.sh) — scriptable, reproducible |
+
+The namespace lab is fully scripted: `sudo ./build-lab.sh up` tears down anything existing and rebuilds the entire topology from nothing in seconds. Clone this repo onto any Linux host and you have my exact network.
+
+```
+sudo ./build-lab.sh up       # build
+sudo ./build-lab.sh status   # namespaces, bridges, addresses, routes
+sudo ./build-lab.sh down     # remove
+```
+
+**Host platform:** Apple Silicon Mac, 8 GB — Packet Tracer via Rosetta 2, namespace lab inside a single Ubuntu Server 24.04 ARM64 VM in UTM.
 
 ---
 

@@ -1,76 +1,67 @@
 # Network+ Portfolio — Complete Build Guide
 
-Everything here assumes you know nothing. Concepts are explained in plain language first, then the actual commands and clicks. Work through it in order.
+Everything here assumes you know nothing. Concepts are explained in plain language first, then the actual commands and clicks.
 
-**Build order is not the same as portfolio order.** The README shows the troubleshooting log first because that's what impresses people. But you have to *build* the lab first, because you can't break a network you haven't built.
-
-| Order | Project | Time |
-|---|---|---|
-| 1st | Virtual Lab | 8–15 hours |
-| 2nd | Troubleshooting Log | 10–20 hours |
-| 3rd | Network Audit | 4–8 hours |
+**Target machine:** Apple Silicon Mac, 8 GB RAM. Every tool chosen below runs on that hardware. If you're reading this on a different machine, the concepts still hold but the installation steps won't.
 
 ---
 
-# PART 0 — Before You Start
+## Why two labs instead of one
 
-## What you need
+The usual advice is "build a lab in VirtualBox with pfSense." That doesn't work here, for two independent reasons:
 
-- A computer with **16 GB RAM** (8 GB will work but everything will be slow)
-- **60 GB free disk space**
-- A stable internet connection for downloads
+1. **pfSense has no ARM build.** Netgate has stated there are no plans for ARM Community Edition images; ARM support exists only in pfSense Plus. On Apple Silicon it can only run under x86 emulation, which is slow and unreliable.
+2. **8 GB isn't enough anyway.** macOS alone uses 3–4 GB. A router VM plus three client VMs needs 8 GB on top of that.
 
-## Turn on virtualization
+So the lab is split in two, and each half does something the other can't:
 
-**Plain English:** Your computer normally runs one operating system. Virtualization lets it pretend to be several separate computers at once. Each fake computer is a "virtual machine," or VM. You're going to build a whole network out of fake computers inside your one real computer.
+| | **Packet Tracer** | **Namespace lab** |
+|---|---|---|
+| What it is | Cisco's network simulator | Real Linux networking inside one small VM |
+| RAM | ~1 GB | ~3 GB |
+| Gives you | VLANs, trunking, IOS syntax, visual topology | Real `ip`/`ping`/`arp`/`tcpdump` output |
+| Maps to | Network+ exam objectives, CCNA later | The troubleshooting log |
+| Differentiating? | No — everyone has one | **Yes** — almost nobody does this |
 
-This feature ships turned off on a lot of machines. Turn it on:
+Build both. Packet Tracer is your study tool and gives you the diagram recruiters can look at. The namespace lab is where the troubleshooting log gets its real command output, and because it's a script, it's reproducible — anyone can clone your repo and rebuild your exact network in thirty seconds. That's the part that doesn't look like everyone else's portfolio.
 
-1. Restart your computer and press the BIOS key repeatedly as it boots — usually `F2`, `F10`, `DEL`, or `ESC`. The boot screen usually says which.
-2. Look for a setting called **Intel VT-x**, **Intel Virtualization Technology**, **AMD-V**, or **SVM Mode**. It's usually under Advanced, CPU Configuration, or Security.
-3. Set it to **Enabled**.
-4. Save and exit (usually `F10`).
+**The design work already applies to both.** [`addressing.md`](../03-virtual-lab/addressing.md) and [`firewall-policy.md`](../03-virtual-lab/firewall-policy.md) are platform-independent. The subnets, the sizing reasoning, and the policy are the same whichever tool implements them.
 
-To confirm it worked, on Windows open Task Manager → Performance → CPU. Bottom right should say **Virtualization: Enabled**.
+**Build order:**
 
-## Vocabulary you'll need immediately
+| Order | What | Time |
+|---|---|---|
+| 1st | Packet Tracer lab | 4–8 hours |
+| 2nd | Namespace lab | 3–6 hours |
+| 3rd | Troubleshooting log | 10–20 hours |
+| 4th | Network audit | 4–8 hours |
+
+---
+
+# PART 0 — Vocabulary
+
+Read this once. Everything later assumes it.
 
 | Term | Plain English |
 |---|---|
-| **IP address** | The street address of a device. `192.168.1.50` |
-| **Subnet mask** | Tells a device which addresses are "on my street" vs "somewhere else in the city." `255.255.255.0` |
-| **Default gateway** | The one road out of your street. If a device wants to reach anything not on its street, it hands the traffic here. |
-| **Switch** | A device that connects computers *on the same street* to each other. Doesn't know how to leave the street. |
-| **Router** | A device that connects *different streets* to each other. Knows how to get from one to another. |
-| **VLAN** | An invisible wall drawn inside one physical switch, splitting it into multiple separate streets that can't hear each other. |
-| **Broadcast domain** | The group of devices that hear each other when one of them shouts. One VLAN = one broadcast domain. |
-| **DHCP** | A clerk that hands out IP addresses automatically so you don't have to type them into every device. |
-| **DNS** | The phone book. Turns `google.com` into an IP address, because devices only understand numbers. |
-| **NIC** | Network Interface Card. The port a network cable plugs into. Virtual machines have fake ones. |
+| **IP address** | The street address of a device. `10.10.10.50` |
+| **Subnet mask** | Tells a device which addresses are "on my street" vs. somewhere else. `255.255.255.192` |
+| **Default gateway** | The one road out of your street. Traffic for anywhere else gets handed here. |
+| **Switch** | Connects devices *on the same street*. Doesn't know how to leave it. |
+| **Router** | Connects *different streets*. Knows how to get from one to another. |
+| **VLAN** | An invisible wall inside one physical switch, splitting it into separate streets that can't hear each other. |
+| **Broadcast domain** | Everyone who hears you when you shout. One VLAN = one broadcast domain. |
+| **Trunk** | A single cable carrying traffic for *multiple* VLANs between two devices, with each frame tagged so the far end knows which VLAN it belongs to. The tagging standard is **802.1Q**. |
+| **Router on a stick** | One physical router interface split into logical subinterfaces, one per VLAN, so a single cable can route between all of them. |
+| **DHCP** | A clerk that hands out IP addresses automatically. |
+| **DNS** | The phone book. Turns `fileserver.lab.local` into an IP address. |
+| **ACL** | Access Control List — a rule list on a router saying which traffic is allowed through. |
 
----
+### The one piece of math you need
 
-# PART 1 — The Virtual Lab
+An IP address is 32 bits. The slash number says how many of those bits identify the *street*; the rest identify the *house*.
 
-**What you're building:** Three separate networks (VLANs) that can't talk to each other unless a router lets them, with automatic address assignment and a working internal phone book. Then you'll deliberately control which of them are allowed to reach which.
-
-**Why it matters:** This is genuinely how a small office is built. Employees on one network, servers on another, management interfaces on a third that almost nobody can reach. It's the single most common design pattern in the job you're applying for.
-
----
-
-## Step 1.1 — Plan the addressing on paper first
-
-Do not skip this and do not do it in your head. Professionals plan addressing before touching hardware, and the plan itself is a portfolio artifact.
-
-### Understanding the slash number
-
-**Plain English:** An IP address has 32 bits — 32 tiny on/off switches, written as four numbers for human convenience. The slash number says *how many of those switches identify the street*, and the rest identify the individual house.
-
-`/24` means 24 bits are the street, leaving 8 bits for houses. 8 bits = 2⁸ = 256 addresses. Two are reserved (one names the street itself, one is the "shout to everybody" address), so **254 usable**.
-
-Every bit you add to the street number cuts the house count in half:
-
-| Slash | Subnet mask | Total addresses | Usable hosts |
+| Prefix | Mask | Addresses | Usable hosts |
 |---|---|---|---|
 | /24 | 255.255.255.0 | 256 | 254 |
 | /25 | 255.255.255.128 | 128 | 126 |
@@ -80,626 +71,758 @@ Every bit you add to the street number cuts the house count in half:
 | /29 | 255.255.255.248 | 8 | 6 |
 | /30 | 255.255.255.252 | 4 | 2 |
 
-**Memorize the right column.** Network+ will ask you to size a subnet, and this table is the whole trick.
+**Memorize the right-hand column.** Two addresses per subnet are unusable: all-zeros names the network itself, all-ones is the broadcast.
 
-### The plan you're going to build
+### The scheme you're building
 
-The skill being demonstrated is *right-sizing* — giving each network only as much space as it needs instead of lazily handing everything a /24.
+Both labs implement this. Full reasoning in [`addressing.md`](../03-virtual-lab/addressing.md).
 
-| VLAN | Purpose | Devices needed | Network | Mask | Usable range | Gateway |
-|---|---|---|---|---|---|---|
-| 10 | Users | ~30 | 10.10.10.0/26 | 255.255.255.192 | 10.10.10.1 – .62 | 10.10.10.1 |
-| 20 | Servers | ~5 | 10.10.20.0/28 | 255.255.255.240 | 10.10.20.1 – .14 | 10.10.20.1 |
-| 30 | Management | ~3 | 10.10.30.0/29 | 255.255.255.248 | 10.10.30.1 – .6 | 10.10.30.1 |
-
-**Worked example — why VLAN 10 is a /26:** You need 30 user devices, plus a gateway, plus headroom for growth. A /27 gives 30 usable, which leaves zero room and doesn't even fit the gateway comfortably. A /26 gives 62. That's the smallest size that fits with room to grow. Show this reasoning in your write-up — the reasoning is the part that's worth points.
-
-**Write this into `03-virtual-lab/addressing.md` now, before you build anything.**
+| VLAN | Purpose | Network | Mask | Usable | Gateway |
+|---|---|---|---|---|---|
+| 10 | Users | 10.10.10.0/26 | 255.255.255.192 | .1 – .62 | 10.10.10.1 |
+| 20 | Servers | 10.10.20.0/28 | 255.255.255.240 | .1 – .14 | 10.10.20.1 |
+| 30 | Management | 10.10.30.0/29 | 255.255.255.248 | .1 – .6 | 10.10.30.1 |
 
 ---
 
-## Step 1.2 — Install VirtualBox
+# PART 1A — The Packet Tracer Lab
 
-1. Go to **virtualbox.org** → Downloads → pick your operating system.
-2. Install it with all default options.
-3. On the same page, download the **VirtualBox Extension Pack**. Install it by double-clicking the downloaded file — VirtualBox will open and ask to install it. Accept.
+**What you're building:** three VLANs on a switch, trunked to a router that routes between them, with DHCP and an ACL enforcing the segmentation policy.
 
-## Step 1.3 — Download your operating systems
+**Why this half exists:** it uses real Cisco IOS syntax, it maps directly onto Network+ exam objectives, and it produces a clean topology picture. It's also the foundation for CCNA if you go that way later.
 
-You need three ISO files. An **ISO** is a single file containing an entire installation disc.
+---
 
-| What | Where | Why |
+## Step 1A.1 — Get Packet Tracer
+
+Packet Tracer is free but requires a Cisco Networking Academy account.
+
+1. Go to **skillsforall.com** (Cisco's free learning platform) and create an account.
+2. Enrol in the free course **"Getting Started with Cisco Packet Tracer."** Enrolment is what unlocks the download — you don't have to finish the course.
+3. Download the **macOS** version and install it.
+4. Launch it and sign in with the same account. It won't run unsigned.
+
+**On Apple Silicon:** Packet Tracer is an Intel application and runs through Rosetta 2 translation rather than natively. If macOS prompts to install Rosetta, accept. Performance is fine — the app is light.
+
+---
+
+## Step 1A.2 — Lay out the topology
+
+Drag these onto the canvas from the device panel at the bottom left:
+
+| Device | Type | Where to find it |
 |---|---|---|
-| **pfSense CE** | pfsense.org → Download → select **AMD64**, **DVD Image (ISO) Installer** | This is your router and firewall. It's free, and it's real software used in real small businesses. |
-| **Ubuntu Desktop** | ubuntu.com/download/desktop | Your client machines. You'll make two or three. |
-| **Ubuntu Server** | ubuntu.com/download/server | Optional — a machine to live on the server VLAN. |
+| Router | **2911** | Routers |
+| Switch | **2960** | Switches |
+| PC-Users | PC | End Devices |
+| PC-Server | PC | End Devices |
+| PC-Mgmt | PC | End Devices |
 
-The pfSense download arrives compressed (`.gz`). Extract it with 7-Zip on Windows, or on Mac/Linux run `gunzip filename.iso.gz`.
+Wire them with the **Copper Straight-Through** cable (the plain solid line under Connections):
 
----
-
-## Step 1.4 — Create the virtual networks
-
-**Plain English:** Before building the fake computers, you build the fake cables. In VirtualBox, an "Internal Network" is a private virtual cable that only VMs you attach to it can use. Nothing else on your real computer or real home network can see it. Each internal network is its own separate street.
-
-You don't create these in a menu — you create them by *naming* them when you configure a VM. Just decide the names now:
-
-- `vlan10-users`
-- `vlan20-servers`
-- `vlan30-mgmt`
-
-Type these exactly the same way every time. A typo creates a fourth network that looks identical and nothing will connect. (Note this down — it's a realistic cause of failure and worth a troubleshooting case later.)
-
----
-
-## Step 1.5 — Build the pfSense router
-
-This VM is the heart of everything. It gets four network cards: one facing the internet, three facing your VLANs.
-
-**Plain English on "router on a stick":** A router's whole job is to have a foot in multiple streets at once so it can pass traffic between them. This VM has four feet.
-
-### Create it
-
-1. VirtualBox → **New**
-2. Name: `pfSense-Router` · Type: **BSD** · Version: **FreeBSD (64-bit)**
-3. Memory: **2048 MB**
-4. Create a virtual hard disk: **VDI**, dynamically allocated, **20 GB**
-5. Click **Create**
-
-### Configure its four network cards
-
-Select the VM → **Settings** → **Network**. There are tabs for Adapter 1 through 4.
-
-| Adapter | Attached to | Name | This is the... |
+| From | Port | To | Port |
 |---|---|---|---|
-| 1 | **NAT** | — | WAN. The way out to the real internet. |
-| 2 | **Internal Network** | `vlan10-users` | User network interface |
-| 3 | **Internal Network** | `vlan20-servers` | Server network interface |
-| 4 | **Internal Network** | `vlan30-mgmt` | Management network interface |
+| Router 2911 | GigabitEthernet0/0 | Switch 2960 | GigabitEthernet0/1 |
+| PC-Users | FastEthernet0 | Switch | FastEthernet0/1 |
+| PC-Server | FastEthernet0 | Switch | FastEthernet0/2 |
+| PC-Mgmt | FastEthernet0 | Switch | FastEthernet0/3 |
 
-Check **Enable Network Adapter** on each of the four tabs. Leave adapter type as the default Intel PRO/1000.
-
-### Install pfSense
-
-1. **Settings** → **Storage** → click the empty CD icon → click the disc icon on the right → **Choose a disk file** → select your extracted pfSense ISO.
-2. **Start** the VM.
-3. Accept the license. Choose **Install**. Accept the default keymap.
-4. Partitioning: choose **Auto (ZFS)** → **Install** → select **stripe** → press `SPACE` to select the disk (`ada0`) → `ENTER` → confirm **YES** to destroy the disk. (It's a virtual disk. Nothing real is being destroyed.)
-5. When it finishes, choose **Reboot**. Before it boots back up, go to **Devices** → **Optical Drives** → **Remove disk from virtual drive** so it doesn't reinstall.
-
-### Assign the interfaces
-
-pfSense boots to a text menu and asks about VLANs. Answer **n** (you're using separate virtual cables instead of tagged VLANs — see the note at the end of this project).
-
-It will then ask you to name each interface. pfSense calls them `em0`, `em1`, `em2`, `em3`, matching Adapters 1–4 in order.
-
-- WAN interface name: `em0`
-- LAN interface name: `em1`
-- Optional 1: `em2`
-- Optional 2: `em3`
-
-Confirm with **y**.
-
-### Set the IP addresses
-
-From the pfSense console menu, choose option **2) Set interface(s) IP address**.
-
-**For LAN (em1) — your VLAN 10:**
-- Configure via DHCP? **n**
-- IPv4 address: `10.10.10.1`
-- Subnet bit count: `26`
-- Upstream gateway: press **ENTER** for none
-- Configure IPv6? **n**
-- Enable DHCP server on LAN? **y**
-- Start address: `10.10.10.10`
-- End address: `10.10.10.60`
-- Revert to HTTP webConfigurator? **n**
-
-**Repeat option 2 for OPT1 (em2):** `10.10.20.1` / `28` / DHCP range `10.10.20.5` – `10.10.20.14`
-
-**Repeat option 2 for OPT2 (em3):** `10.10.30.1` / `29` / DHCP **n** (management devices get static addresses on purpose — that's a deliberate design decision worth explaining in your write-up)
-
-**Plain English on what just happened:** Each interface now holds the first usable address of its street, and acts as that street's only exit. You also stood up a DHCP clerk on two of the three streets.
+Link lights will be red at first. That's expected — nothing is configured yet.
 
 ---
 
-## Step 1.6 — Build a client machine
+## Step 1A.3 — Configure the switch
 
-1. VirtualBox → **New** → Name: `PC1-Users` · Type: **Linux** · Version: **Ubuntu (64-bit)**
-2. Memory: **2048 MB** · Disk: **25 GB**
-3. **Settings** → **Network** → Adapter 1 → **Internal Network** → `vlan10-users`
-4. **Settings** → **Storage** → attach the Ubuntu Desktop ISO
-5. Start it, install Ubuntu with defaults (choose "Minimal installation" to save time), reboot, remove the ISO.
+Click the switch → **CLI** tab → press Enter.
 
-### Verify it worked
+**Create the VLANs.** Right now the switch has one broadcast domain. You're splitting it into three.
 
-Open a terminal in Ubuntu (`Ctrl+Alt+T`) and run:
+```
+enable
+configure terminal
+hostname SW1
 
-```bash
-ip a
+vlan 10
+ name USERS
+ exit
+vlan 20
+ name SERVERS
+ exit
+vlan 30
+ name MGMT
+ exit
 ```
 
-You should see an address between `10.10.10.10` and `10.10.10.60`. If you do, your DHCP server works.
+**Assign the access ports.** An *access port* belongs to exactly one VLAN and sends untagged frames — the end device has no idea VLANs exist.
 
-```bash
-ip route
+```
+interface fastEthernet 0/1
+ switchport mode access
+ switchport access vlan 10
+ exit
+interface fastEthernet 0/2
+ switchport mode access
+ switchport access vlan 20
+ exit
+interface fastEthernet 0/3
+ switchport mode access
+ switchport access vlan 30
+ exit
 ```
 
-Should show `default via 10.10.10.1`. That's your gateway.
+**Configure the trunk.** This is the one cable to the router carrying all three VLANs, with each frame tagged so the router can tell them apart.
 
-```bash
-ping 10.10.10.1
+```
+interface gigabitEthernet 0/1
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20,30
+ exit
+end
+write memory
 ```
 
-Replies mean you can reach your router.
+> **Why no `switchport trunk encapsulation dot1q` here?** On a 2960, 802.1Q is the only encapsulation supported, so the command doesn't exist. On a layer-3 switch like a 3560 you *would* need it, because those also support the older Cisco ISL. Worth knowing — it's a classic exam gotcha and a classic real-world confusion.
 
-```bash
-ping 8.8.8.8
+**Verify:**
+
+```
+show vlan brief
+show interfaces trunk
 ```
 
-Replies mean your router is passing traffic out to the internet.
-
-**Screenshot all of this.** It's evidence.
-
-### Build the others
-
-Repeat for `PC2-Servers` on `vlan20-servers` and `PC3-Mgmt` on `vlan30-mgmt`. The management box has no DHCP, so set its address manually: Ubuntu Settings → Network → gear icon → IPv4 → Manual → Address `10.10.30.5`, Netmask `255.255.255.248`, Gateway `10.10.30.1`, DNS `10.10.30.1`.
+`show vlan brief` should list your three VLANs with the right ports in each. `show interfaces trunk` should show Gi0/1 trunking VLANs 10, 20 and 30. **Screenshot both.**
 
 ---
 
-## Step 1.7 — Reach the web interface and set firewall rules
+## Step 1A.4 — Configure the router (router on a stick)
 
-From `PC1-Users`, open a browser and go to `https://10.10.10.1`. Accept the security warning. Log in with username `admin`, password `pfsense`. **Change the password immediately** when prompted — and mention in your write-up that you did, because default credentials are a Network+ security objective.
+Click the router → **CLI** tab.
 
-### The important part: inter-VLAN traffic control
+**Plain English:** the router has one physical cable to the switch but needs an address on all three VLANs. You split the physical interface into three logical *subinterfaces*, each tagged for one VLAN. One cable, three gateways.
 
-**Plain English:** Right now VLAN 10 can reach everything, because pfSense's default LAN rule is "allow anything out." Meanwhile VLAN 20 and 30 can reach *nothing*, because optional interfaces start with no rules at all and anything not explicitly allowed is blocked. You're going to replace that with a deliberate policy.
+```
+enable
+configure terminal
+hostname R1
 
-Go to **Firewall → Rules**.
+interface gigabitEthernet 0/0
+ no shutdown
+ exit
 
-**Policy you're implementing:**
+interface gigabitEthernet 0/0.10
+ encapsulation dot1Q 10
+ ip address 10.10.10.1 255.255.255.192
+ exit
 
-| From | To | Allowed? | Why |
-|---|---|---|---|
-| Users (10) | Internet | Yes | People need to work |
-| Users (10) | Servers (20) | Yes, on specific ports only | Access files, not the whole box |
-| Users (10) | Management (30) | **No** | Employees have no business on switch admin pages |
-| Servers (20) | Internet | Yes | Updates |
-| Servers (20) | Users (10) | **No** | A compromised server shouldn't be able to attack workstations |
-| Management (30) | Everything | Yes | Admins need to get everywhere |
+interface gigabitEthernet 0/0.20
+ encapsulation dot1Q 20
+ ip address 10.10.20.1 255.255.255.240
+ exit
 
-To build the "Users cannot reach Management" rule:
-
-1. **Firewall → Rules → LAN** tab → **Add** (the up-arrow button, to place it at the top — rules are read top to bottom and the first match wins)
-2. Action: **Block**
-3. Interface: **LAN**
-4. Address Family: **IPv4**
-5. Protocol: **Any**
-6. Source: **LAN net**
-7. Destination: **Network** → `10.10.30.0` / `29`
-8. Description: `Block users from management VLAN`
-9. **Save** → **Apply Changes**
-
-**Test it.** From `PC1-Users`: `ping 10.10.30.5` should now fail. From `PC3-Mgmt`: `ping 10.10.10.x` should still work. **Screenshot both.** A rule you tested is worth ten rules you configured.
-
-Build out the rest of the table the same way. To allow only specific ports, set Protocol to **TCP** and specify the destination port.
-
----
-
-## Step 1.8 — Internal DNS
-
-**Plain English:** Right now you type `10.10.20.5` to reach your server. Real networks let you type `fileserver.lab.local`. That translation is DNS, and pfSense runs it for you.
-
-1. **Services → DNS Resolver** — confirm **Enable** is checked (it is by default)
-2. Scroll to **Host Overrides** → **Add**
-3. Host: `fileserver` · Domain: `lab.local` · IP: `10.10.20.5` · Description: `File server`
-4. **Save** → **Apply Changes**
-
-Test from `PC1-Users`:
-
-```bash
-nslookup fileserver.lab.local
-ping fileserver.lab.local
+interface gigabitEthernet 0/0.30
+ encapsulation dot1Q 30
+ ip address 10.10.30.1 255.255.255.248
+ exit
 ```
 
-The name should resolve to `10.10.20.5`. Screenshot it.
+The physical interface must be brought up with `no shutdown` *before* the subinterfaces work. Forgetting that is the single most common reason a router-on-a-stick build silently fails.
+
+**Verify:**
+
+```
+show ip interface brief
+show ip route
+```
+
+All three subinterfaces should read **up/up**, and the routing table should show three directly connected networks with `C`. **Screenshot both.**
 
 ---
 
-## Step 1.9 — Take snapshots (do not skip)
+## Step 1A.5 — DHCP
 
-**Plain English:** A snapshot is a saved photograph of a VM's exact state. If you wreck a machine, you restore the photograph and it's like it never happened. You are about to spend an entire project deliberately wrecking things.
+**Plain English:** `ip dhcp excluded-address` reserves addresses the clerk isn't allowed to hand out — the gateway and the statically assigned server.
 
-For **every VM**: select it → **Snapshots** (top right) → **Take** → name it `clean-working-baseline` → OK.
+```
+configure terminal
+
+ip dhcp excluded-address 10.10.10.1 10.10.10.9
+ip dhcp excluded-address 10.10.20.1 10.10.20.4
+
+ip dhcp pool VLAN10
+ network 10.10.10.0 255.255.255.192
+ default-router 10.10.10.1
+ dns-server 10.10.20.5
+ exit
+
+ip dhcp pool VLAN20
+ network 10.10.20.0 255.255.255.240
+ default-router 10.10.20.1
+ dns-server 10.10.20.5
+ exit
+end
+write memory
+```
+
+VLAN 30 gets no pool — management devices are static by design, so an unexpected device on that segment fails loudly instead of quietly joining. That's a deliberate decision; say so in your write-up.
+
+**Test it.** Click PC-Users → **Desktop** → **IP Configuration** → select **DHCP**. It should pull an address in 10.10.10.10–.62 with gateway 10.10.10.1.
+
+Set PC-Mgmt manually: address `10.10.30.5`, mask `255.255.255.248`, gateway `10.10.30.1`.
+
+**Verify from the router:**
+
+```
+show ip dhcp binding
+```
+
+**Screenshot it.**
 
 ---
 
-## Step 1.10 — Document it
+## Step 1A.6 — Enforce the policy with an ACL
 
-1. **Diagram:** Go to **app.diagrams.net** (free, no account). Draw three boxes for the VLANs, one for the router, one for the internet. Label every link with its network address and every interface with its IP. Export as PNG into `03-virtual-lab/diagrams/`.
-2. **Addressing:** Finish `addressing.md` with the table and your sizing reasoning.
-3. **Configs:** In pfSense, **Diagnostics → Backup & Restore → Download configuration as XML**. Save it to `03-virtual-lab/configs/`. **Open it in a text editor and delete the password hashes** before committing it anywhere public.
+**Plain English:** inter-VLAN routing now works, which means everyone can reach everyone. That's not what [`firewall-policy.md`](../03-virtual-lab/firewall-policy.md) says should happen. An ACL is a rule list applied to an interface that permits or denies traffic.
 
-## Step 1.11 — Go past the finish line
+```
+configure terminal
 
-Pick at least one and do it, because this is what separates your lab from everyone else's:
+ip access-list extended USERS_IN
+ deny ip 10.10.10.0 0.0.0.63 10.10.30.0 0.0.0.7
+ permit ip any any
+ exit
 
-- **A $30 managed switch** (TP-Link TL-SG108E or similar) plus real 802.1Q VLAN tagging and a trunk port. This turns your "separate virtual cables" setup into genuine VLAN tagging, which is what the exam actually tests and what the job actually uses.
-- **Monitoring:** install Zabbix or LibreNMS on the server VM and monitor the router.
-- **VPN:** enable OpenVPN on pfSense and connect from your host machine.
-- **IPv6:** dual-stack one VLAN.
-- **Centralized logging:** point pfSense syslog at a server VM running rsyslog.
+interface gigabitEthernet 0/0.10
+ ip access-group USERS_IN in
+ exit
+end
+write memory
+```
 
-Write a paragraph about why you chose it and what surprised you.
+### Wildcard masks — the bit that trips everyone up
+
+Cisco ACLs use a **wildcard mask**, which is the inverse of a subnet mask. A `0` bit means "must match"; a `1` bit means "don't care."
+
+| Network | Subnet mask | Wildcard mask |
+|---|---|---|
+| 10.10.10.0/26 | 255.255.255.192 | **0.0.0.63** |
+| 10.10.20.0/28 | 255.255.255.240 | **0.0.0.15** |
+| 10.10.30.0/29 | 255.255.255.248 | **0.0.0.7** |
+
+Quick conversion: subtract each subnet-mask octet from 255. `255 − 192 = 63`. That's the whole trick.
+
+### The rule everyone forgets
+
+**Every ACL ends with an invisible `deny any any`.** If you write only the deny line and omit `permit ip any any`, you have blocked all traffic from that VLAN, not just the management traffic. Leave it off and your users lose internet, the file server, everything.
+
+**Test both directions:**
+
+- PC-Users → Command Prompt → `ping 10.10.30.5` → must **fail**
+- PC-Users → `ping 10.10.20.5` → must **succeed**
+- PC-Mgmt → `ping 10.10.10.x` → must **succeed**
+
+```
+show access-lists
+```
+
+The deny line will show a match counter climbing as blocked pings hit it. **Screenshot that** — a rule with hit counts is proof it's actually doing something, not just configured.
+
+---
+
+## Step 1A.7 — Save the artifacts
+
+1. **File → Save As** → `03-virtual-lab/packet-tracer/lab.pkt`
+2. Screenshot the topology canvas → `03-virtual-lab/diagrams/topology.png`
+3. Export each device's config: on the CLI run `show running-config`, copy the output into `03-virtual-lab/configs/r1-running-config.txt` and `sw1-running-config.txt`
+
+---
+
+# PART 1B — The Namespace Lab
+
+**What you're building:** the same three-segment network, as real Linux networking inside a single small VM — and as a script that rebuilds it from nothing in thirty seconds.
+
+**Why this half exists:** Packet Tracer is a simulator. It can't give you genuine `ip a` output, a real ARP table, or a real packet capture. Your troubleshooting log needs all three. It's also the piece that makes your portfolio reproducible, which almost nobody at this level does.
+
+---
+
+## Step 1B.1 — Install UTM and Ubuntu
+
+**UTM** is a free, Apple Silicon–native virtualization app.
+
+1. Download from **mac.getutm.app** (the direct download is free; the Mac App Store build is the same app, paid as a convenience).
+2. Download **Ubuntu Server 24.04 LTS for ARM64** from `ubuntu.com/download/server/arm` — it must be the **ARM64** image, not AMD64. An x86 image would have to be emulated and would be unusably slow.
+3. In UTM: **Create a New Virtual Machine → Virtualize → Linux**, select the Ubuntu ARM64 ISO.
+4. Memory: **3072 MB**. Storage: **20 GB**. CPU cores: 2.
+5. Install Ubuntu with defaults. Choose **"Install OpenSSH server"** when offered — it makes copying command output out of the VM far easier than retyping from a screenshot.
+
+> Server, not Desktop. You don't need a GUI, and Desktop would eat another gigabyte for nothing.
+
+After install, shut down, remove the ISO from the VM's drive settings, and boot.
+
+---
+
+## Step 1B.2 — Install the tools
+
+```bash
+sudo apt update
+sudo apt install -y iproute2 iputils-ping tcpdump dnsmasq nftables bridge-utils net-tools dnsutils
+```
+
+| Package | What it gives you |
+|---|---|
+| `iproute2` | `ip` — addresses, routes, namespaces |
+| `iputils-ping` | `ping` |
+| `tcpdump` | packet capture (Wireshark's command-line sibling) |
+| `dnsmasq` | lightweight DHCP + DNS server |
+| `nftables` | the firewall |
+| `dnsutils` | `dig`, `nslookup` |
+
+---
+
+## Step 1B.3 — Understand what you're about to build
+
+**Plain English, and this is the key idea:** a *network namespace* is a completely separate network stack inside one running kernel — its own interfaces, its own routing table, its own ARP cache, its own firewall state. From the inside it behaves exactly like a separate computer. It costs a few hundred kilobytes instead of a gigabyte.
+
+The mapping to real hardware:
+
+| Real thing | Linux equivalent |
+|---|---|
+| A computer | a **network namespace** |
+| A patch cable | a **veth pair** — two virtual interfaces joined end to end |
+| A switch | a **bridge** |
+| A router | the **root namespace** with IP forwarding on, holding every segment's gateway address |
+| A firewall | **nftables** rules on the forward chain |
+
+So: three bridges (three switches, one per segment), each with its gateway address; three namespaces (three PCs), each cabled to its bridge by a veth pair; and the root namespace forwarding between them.
+
+---
+
+## Step 1B.4 — Run the build script
+
+The script lives in the repo at [`03-virtual-lab/build-lab.sh`](../03-virtual-lab/build-lab.sh). Copy it into the VM (or `git clone` your repo there once it's pushed).
+
+```bash
+chmod +x build-lab.sh
+sudo ./build-lab.sh up
+```
+
+It tears down anything from a previous run, then builds the topology from scratch. Three subcommands:
+
+| Command | Does |
+|---|---|
+| `sudo ./build-lab.sh up` | Build (destroys and rebuilds) |
+| `sudo ./build-lab.sh down` | Remove everything |
+| `sudo ./build-lab.sh status` | Show namespaces, bridges, addresses, routes |
+
+**Read the script before you run it.** It's commented line by line, and understanding it is most of the value. If you can't explain what `ip link add v-pc1 type veth peer name eth0 netns pc1` does, you're not ready to put this in a portfolio — and once you can explain it, you'll be ahead of most people interviewing for the same job.
+
+---
+
+## Step 1B.5 — Verify
+
+Commands run inside a namespace are prefixed with `ip netns exec <name>`:
+
+```bash
+sudo ip netns exec pc1 ip a
+sudo ip netns exec pc1 ip route
+sudo ip netns exec pc1 ping -c3 10.10.10.1      # own gateway
+sudo ip netns exec pc1 ping -c3 10.10.20.5      # permitted cross-segment
+sudo ip netns exec pc1 ping -c3 10.10.30.5      # must be BLOCKED
+sudo ip netns exec srv1 ping -c3 10.10.10.50    # must be BLOCKED
+sudo ip netns exec mgmt1 ping -c3 10.10.10.50   # must SUCCEED
+```
+
+Those last three are the ones that matter. A firewall policy nobody tested is an assumption.
+
+```bash
+sudo nft list ruleset
+```
+
+**Capture all of this.** Real output from these commands is exactly what the troubleshooting log needs.
+
+---
+
+## Step 1B.6 — Capture packets
+
+```bash
+# Watch ARP on the users segment
+sudo tcpdump -i br10 -n arp
+
+# In another terminal, from inside pc1:
+sudo ip netns exec pc1 ping -c3 10.10.10.60
+```
+
+You'll see pc1 broadcast "who has 10.10.10.60?" and get no answer. That's the raw material for Case 02 and Case 03.
+
+Save captures in a form you can commit:
+
+```bash
+# Human-readable text (commit this)
+sudo tcpdump -i br10 -n arp -c 50 > case-03-arp.txt
+
+# Full capture to open in Wireshark later (do NOT commit — .gitignore blocks it)
+sudo tcpdump -i br10 -w capture.pcap
+```
+
+To read a `.pcap` in Wireshark's GUI, copy it to your Mac with `scp` and open it there. The `.gitignore` in this repo blocks `.pcap` files from being committed, because raw captures can contain credentials.
+
+---
+
+## Step 1B.7 — DHCP and DNS
+
+The build script sets static addresses so the topology comes up deterministically. Adding DHCP is your first extension, and a good one.
+
+```bash
+sudo dnsmasq \
+  --interface=br10 \
+  --bind-interfaces \
+  --dhcp-range=10.10.10.10,10.10.10.60,255.255.255.192,12h \
+  --dhcp-option=3,10.10.10.1 \
+  --dhcp-option=6,10.10.20.5 \
+  --address=/fileserver.lab.local/10.10.20.5 \
+  --no-daemon
+```
+
+| Flag | Means |
+|---|---|
+| `--dhcp-range` | pool start, end, mask, lease time |
+| `--dhcp-option=3` | default gateway |
+| `--dhcp-option=6` | DNS server |
+| `--address=/name/ip` | a static DNS record |
+| `--no-daemon` | run in the foreground so you can watch the DHCP exchange live |
+
+Then remove pc1's static address and let it request one:
+
+```bash
+sudo ip netns exec pc1 ip addr flush dev eth0
+sudo ip netns exec pc1 dhclient eth0
+sudo ip netns exec pc1 ip a
+```
+
+Watching a DHCP lease happen in the dnsmasq log — DISCOVER, OFFER, REQUEST, ACK — is worth more than reading about it ten times.
+
+---
+
+## Step 1B.8 — Go past the finish line
+
+Pick at least one. This is the part that separates your lab from a tutorial follow-along:
+
+- **Rewrite the build script in Python** with a topology defined in YAML. You're a Python developer — make the lab config-driven and the repo becomes a tool, not a writeup.
+- **Add real 802.1Q VLAN tagging** with `ip link add link eth0 name eth0.10 type vlan id 10` instead of separate bridges. Closer to how actual switches work.
+- **Add a fourth IoT segment** with a stricter policy, mirroring what you'll recommend in the audit.
+- **Centralized logging** — point nftables at the system log and watch the drops accumulate.
+- **IPv6 dual-stack** on one segment.
+
+Write a paragraph on what you picked, why, and what surprised you.
 
 ---
 
 # PART 2 — The Troubleshooting Case Log
 
-**What you're building:** Six documented failures, worked start to finish, with real command output.
-
-**Why it's the most valuable project:** Anyone can follow a tutorial. The job is figuring out what's wrong when nobody knows what's wrong. This is the only artifact that shows you can do that.
+**Why it's the most valuable project:** anyone can follow a tutorial. The job is figuring out what's wrong when nobody knows what's wrong. This is the only artifact that shows you can do that.
 
 ---
 
-## Step 2.1 — Learn the methodology (it's on the exam)
+## Step 2.1 — The methodology
 
 CompTIA's seven steps, in plain language:
 
-1. **Identify the problem** — What exactly is broken? Who's affected? When did it start? What changed?
+1. **Identify the problem** — What's broken? Who's affected? What changed?
 2. **Establish a theory** — Best guess at the cause.
-3. **Test the theory** — Prove or disprove it. If disproved, form a new theory or escalate.
-4. **Establish a plan of action** — Decide what you'll change and what it might affect.
-5. **Implement the solution**
-6. **Verify full system functionality** — And take preventive measures.
+3. **Test the theory** — Prove or disprove it. If disproved, form a new one.
+4. **Establish a plan of action** — What you'll change, and what else it might affect.
+5. **Implement**
+6. **Verify full system functionality** — and take preventive measures.
 7. **Document findings, actions, and outcomes**
 
-Your write-ups will follow these headings exactly. That's deliberate: it shows a hiring manager you already work the way they need you to work.
+Every case file in [`01-troubleshooting-log/`](../01-troubleshooting-log/) uses these as headings. That's deliberate — it shows a hiring manager you already work the way they need you to.
 
-**One critical habit:** change **one thing at a time**. If you change three things and it starts working, you don't know what fixed it, and you've learned nothing.
+**One habit that matters more than any tool:** change **one thing at a time**. Change three and it starts working, and you've learned nothing.
 
 ---
 
-## Step 2.2 — Know your tools
+## Step 2.2 — Tools
 
 | Tool | Plain English | Command |
 |---|---|---|
-| `ping` | Shout at a device and see if it shouts back | `ping 10.10.10.1` |
-| `traceroute` | Show every stop along the route | `traceroute 8.8.8.8` (Win: `tracert`) |
-| `ip a` | Show my own address | `ip a` (Win: `ipconfig /all`) |
-| `ip route` | Show which way out I'm using | `ip route` (Win: `route print`) |
-| `nslookup` / `dig` | Ask the phone book directly | `nslookup google.com` |
-| `arp` | Show which physical device owns which IP on my street | `arp -a` |
-| `ss` / `netstat` | Show what connections this machine has open | `ss -tuln` |
-| **Wireshark** | Record every packet and read it | Install: `sudo apt install wireshark` |
+| `ping` | Shout and see if it answers | `ping 10.10.10.1` |
+| `traceroute` | Every stop along the route | `traceroute 8.8.8.8` |
+| `ip a` | My own address | `ip a` |
+| `ip route` | Which way out I'm using | `ip route` |
+| `arp` | Who owns which IP on my segment | `ip neigh` or `arp -a` |
+| `nslookup` / `dig` | Ask the phone book directly | `dig google.com` |
+| `ss` | What connections this host has open | `ss -tuln` |
+| `tcpdump` | Record and read every packet | `tcpdump -i br10 -n` |
 
-### Wireshark in one paragraph
+### tcpdump filters worth memorizing
 
-**Plain English:** Data crosses a network in small chunks called packets, each carrying addresses and a payload. Wireshark records every packet crossing an interface and lets you read them. It's a wiretap for your own network.
+```bash
+sudo tcpdump -i br10 -n arp              # ARP only
+sudo tcpdump -i br10 -n icmp             # ping only
+sudo tcpdump -i br10 -n port 53          # DNS only
+sudo tcpdump -i br10 -n host 10.10.20.5  # one host
+sudo tcpdump -i br10 -n port 67 or port 68   # DHCP
+```
 
-Open it, double-click your interface (usually `enp0s3`), and traffic scrolls past. Type a filter in the green bar and press Enter:
-
-- `icmp` — only ping traffic
-- `dns` — only phone book lookups
-- `arp` — only "who owns this IP?" broadcasts
-- `ip.addr == 10.10.20.5` — only traffic to or from that device
-- `dhcp` — only address-assignment traffic (older versions: `bootp`)
-
-**File → Export Packet Dissections → As Plain Text** to save evidence into your repo.
+`-n` stops it resolving names, which otherwise makes output slow and confusing — especially when DNS is the thing that's broken.
 
 ---
 
 ## Step 2.3 — The six faults
 
-For each one: **take a fresh snapshot first**, break it, then approach it as though you don't know the cause. Actually run the diagnostic sequence and record the output even when you already suspect the answer, because the output *is* the portfolio.
+**Take a snapshot before each one.** In the namespace lab that's free: `sudo ./build-lab.sh up` rebuilds clean in thirty seconds. In UTM, snapshot the VM. In Packet Tracer, save a copy of the `.pkt`.
+
+Each case can be worked in either environment. Use the namespace lab when you want real output for the write-up, Packet Tracer when you want the Cisco-side view.
 
 ---
 
 ### Case 01 — Wrong default gateway
 
-**Break it:** On `PC1-Users`, set a static IP with a bad gateway. Ubuntu Settings → Network → gear → IPv4 → Manual: Address `10.10.10.50`, Netmask `255.255.255.192`, Gateway `10.10.10.99`, DNS `10.10.10.1`.
-
-**Symptom:** Can ping other devices on VLAN 10. Cannot reach the internet or any other VLAN.
-
-**The diagnostic path:**
+**Namespace lab:**
 ```bash
-ip a                    # address looks fine
-ping 10.10.10.1         # router responds — local network is healthy
-ping 8.8.8.8            # fails
-ip route                # "default via 10.10.10.99" — there's your problem
-arp -a                  # 10.10.10.99 shows as incomplete: nothing there
+sudo ip netns exec pc1 ip route del default
+sudo ip netns exec pc1 ip route add default via 10.10.10.99
 ```
 
-**Concept to explain in your write-up:** A device only knows how to reach its own street. Anything else gets handed to the gateway. Point at a gateway that doesn't exist and every off-network destination silently fails, while local traffic looks perfectly fine. That split symptom — local works, remote doesn't — is the fingerprint.
+**Packet Tracer:** PC-Users → Desktop → IP Configuration → set gateway to `10.10.10.99`
+
+**Symptom:** local hosts reachable, everything off-segment dead.
+
+**Diagnostic path:** `ip a` → `ping 10.10.10.1` (works) → `ping 10.10.20.5` (fails) → `ip route` (shows the bad gateway) → `ip neigh` (gateway shows `INCOMPLETE` — nothing is there)
+
+**Concept:** a host only knows how to reach its own segment; everything else goes to the gateway. Point at a gateway nothing answers to and every off-segment destination fails silently while local traffic stays healthy. That split is the fingerprint.
 
 ---
 
 ### Case 02 — Duplicate IP address
 
-**Break it:** Set `PC1-Users` to static `10.10.10.20` (inside the DHCP range), and set another VM on the same VLAN to static `10.10.10.20` as well.
-
-**Symptom:** Connectivity works intermittently. Sometimes fine, sometimes dead. Often worse for one machine than the other.
-
-**Diagnostic path:**
+**Namespace lab:**
 ```bash
-ping 10.10.10.20        # inconsistent replies
-arp -a                  # watch the MAC address for that IP change between checks
+sudo ip netns exec srv1 ip addr add 10.10.10.50/26 dev eth0
+# now both pc1 and srv1 claim .50
 ```
-Run Wireshark with filter `arp` and watch two different MAC addresses claim the same IP. Also check the system log: `journalctl -xe | grep -i duplicate`.
+(For a cleaner version, add a fourth namespace on br10 with the same address as pc1.)
 
-**Concept:** IP addresses are how devices are *found*, but MAC addresses are how frames are actually *delivered* on the local street. When two machines claim one IP, switches and hosts keep flip-flopping on which MAC to deliver to. Intermittent is the signature — and intermittent problems are the hardest kind, which is why this case is worth including.
+**Packet Tracer:** set two PCs on the same VLAN to the same static address.
+
+**Symptom:** intermittent. Sometimes fine, sometimes dead.
+
+**Diagnostic path:** repeated `ping` showing inconsistent replies → `ip neigh` run twice showing the MAC changing → `tcpdump -i br10 -n arp` showing two MACs claiming one IP
+
+**Concept:** IPs are how hosts are addressed; MACs are how frames are actually delivered. Two hosts on one IP means every other device's ARP cache keeps flip-flopping, and delivery becomes a coin toss. Intermittent is the signature — and intermittent faults get closed as "user error" when nobody checks the ARP table.
 
 ---
 
 ### Case 03 — Wrong subnet mask
 
-**Break it:** On `PC1-Users`, set static `10.10.10.50` with mask `255.255.255.0` (a /24) instead of the correct `255.255.255.192` (/26). Gateway stays `10.10.10.1`.
-
-**Symptom:** This is the sneaky one. Some things work. Some don't. Behavior depends on which address you're trying to reach.
-
-**Diagnostic path:**
+**Namespace lab:**
 ```bash
-ip a                            # address is right, mask is wrong — easy to skim past
-ping 10.10.10.1                 # works
-ping 10.10.20.5                 # fails or behaves strangely
+sudo ip netns exec pc1 ip addr flush dev eth0
+sudo ip netns exec pc1 ip addr add 10.10.10.50/24 dev eth0   # should be /26
+sudo ip netns exec pc1 ip route add default via 10.10.10.1
 ```
 
-**Concept — and this is the best concept in the whole log:** The mask is what a device uses to decide "is this destination on my street, or do I send it to the gateway?" With a wrong /24 mask, the machine believes everything from `10.10.10.1` to `10.10.10.254` is local. So for anything in `.65`–`.254` it will shout on the local wire — ARP — instead of routing. Nobody answers, and the traffic dies. Meanwhile everything genuinely local still works.
+**Packet Tracer:** set PC-Users mask to `255.255.255.0` instead of `255.255.255.192`.
 
-If you can explain this out loud in an interview, you're ahead of most candidates. Wrong-mask problems are extremely common in the real world and notoriously misdiagnosed.
+**Symptom:** the sneaky one. Some destinations work, some don't, and which is which looks arbitrary.
+
+**Diagnostic path:** `ip a` (mask is wrong but easy to skim past) → `ping 10.10.10.1` works → `ping 10.10.20.5` fails → `ip route` shows an over-wide directly-connected network → `tcpdump -i br10 -n arp` shows the host ARPing for an address it should have routed to
+
+**Concept — the best one in the log:** the mask is what a host uses to decide "is this local, or does it go to the gateway?" With a wrong /24, the host believes `.1` through `.254` are all on its segment, so for anything in `.65`–`.254` it broadcasts ARP on the local wire instead of routing. Nothing answers. Traffic dies with no error pointing at the mask, while everything genuinely local keeps working. This gets misdiagnosed as a server problem, a cable problem, or an application problem long before anyone re-reads the mask.
+
+**Spend the most time on this write-up.** If you can explain it out loud in an interview, you're ahead of most candidates.
 
 ---
 
 ### Case 04 — Dead DNS server
 
-**Break it:** On `PC1-Users`, keep everything correct but set DNS to `10.10.10.200` (nothing is there).
-
-**Symptom:** "The internet is down." But it isn't.
-
-**Diagnostic path:**
+**Namespace lab:**
 ```bash
-ping 8.8.8.8            # works — raw connectivity is fine
-ping google.com         # "Name or service not known"
-nslookup google.com     # timeout, connection refused
-cat /etc/resolv.conf    # shows the wrong DNS server
-nslookup google.com 8.8.8.8   # works when you specify a good server — proves it's DNS
+sudo ip netns exec pc1 mkdir -p /etc/netns/pc1
+echo "nameserver 10.10.10.200" | sudo tee /etc/netns/pc1/resolv.conf
 ```
+(Namespaces can have their own `/etc/netns/<name>/resolv.conf` — a genuinely useful thing to know.)
 
-**Concept:** Reachability and name resolution are two separate systems, and users can't tell them apart. "Ping the IP, then ping the name" is the fastest way to split them. If the IP works and the name doesn't, it's DNS. That single test is worth mentioning explicitly in your write-up.
+**Packet Tracer:** set PC-Users' DNS server to `10.10.10.200`.
+
+**Symptom:** "the internet is down." It isn't.
+
+**Diagnostic path:** `ping 8.8.8.8` works → `ping google.com` fails to resolve → `dig google.com` times out → `cat /etc/resolv.conf` shows the wrong server → `dig @8.8.8.8 google.com` works, proving it's the resolver
+
+**Concept:** reachability and name resolution are independent systems, and from a user's chair both failures look identical. Ping an IP, then ping a name — ten seconds to split them, and it redirects the whole investigation away from cables and the ISP.
 
 ---
 
 ### Case 05 — Firewall rule blocking legitimate traffic
 
-**Break it:** In pfSense, **Firewall → Rules → LAN**, add a Block rule at the top: source **LAN net**, destination **Network** `10.10.20.0/28`. Apply.
-
-**Symptom:** Users suddenly can't reach the file server. Nothing changed on any client.
-
-**Diagnostic path:**
+**Namespace lab:**
 ```bash
-ping 10.10.20.5         # fails
-ip a / ip route         # client config is perfect
-ping 10.10.10.1         # gateway fine
+sudo nft insert rule inet lab forward ip saddr 10.10.10.0/26 ip daddr 10.10.20.0/28 drop
 ```
-Then in pfSense: **Status → System Logs → Firewall**. Find the blocked packets and the rule ID that dropped them.
 
-**Concept:** When client config is provably correct and one specific destination is unreachable, stop looking at the client. The firewall log is the fastest path to the answer, and knowing to check it is the thing being demonstrated.
+**Packet Tracer:** add a `deny ip 10.10.10.0 0.0.0.63 10.10.20.0 0.0.0.15` line above the permit in `USERS_IN`.
+
+**Symptom:** users can't reach the file server. Nothing changed on any client.
+
+**Diagnostic path:** client config is provably fine (`ip a`, `ip route`, gateway ping all good) → one specific destination unreachable, control destination fine → `sudo nft list ruleset` / `show access-lists` reveals the rule
+
+**Concept:** rules are evaluated top to bottom, first match wins, so a rule inserted above an allow silently overrides it. When the client is healthy and exactly one destination is dead, stop testing the endpoint and read the rule list. Knowing to make that jump is the whole skill.
 
 ---
 
-### Case 06 — Wrong VLAN assignment
+### Case 06 — Wrong VLAN / segment assignment
 
-**Break it:** Shut down `PC2-Servers`. In its VirtualBox network settings, change Adapter 1's Internal Network from `vlan20-servers` to `vlan10-users`. Boot it.
-
-**Symptom:** The machine gets an unexpected address — it now pulls from the VLAN 10 DHCP pool — and nothing that's supposed to reach it can.
-
-**Diagnostic path:**
+**Namespace lab:**
 ```bash
-ip a          # address is in 10.10.10.x, not 10.10.20.x — immediate red flag
+sudo ip link set v-srv1 nomaster
+sudo ip link set v-srv1 master br10     # srv1 is now cabled to the wrong switch
 ```
 
-**Concept:** This is the virtual equivalent of a cable in the wrong switch port, or a port assigned to the wrong VLAN. It's one of the most common real-world causes of "it worked yesterday" after an office move. The address a device receives tells you which broadcast domain it's actually sitting in, regardless of where you think you plugged it.
+**Packet Tracer:** change Fa0/2 from `switchport access vlan 20` to `vlan 10`.
+
+**Symptom:** the host comes up with an address from the wrong pool, or can't reach its own gateway.
+
+**Diagnostic path:** `ip a` — the address alone is the diagnosis
+
+**Concept:** a host's address tells you which broadcast domain it's actually in, regardless of where you think you plugged it. In production this is a patch panel error or a mis-assigned access port, and the fix is at the switch, not the server. It's one of the most common real causes of "it worked yesterday" after an office move.
 
 ---
 
 ## Step 2.4 — Get one unplanned failure
 
-This is the case that matters most, and you can't script it. Options:
+This is Case 07, it's the most valuable page in the repo, and you can't script it.
 
-- **Have someone else break it.** Give a friend the VM list and ten minutes. They change one thing and don't tell you what. Time yourself.
-- **Wait for one.** Do the extension work from Step 1.11. Something will break for real, and you will not know why. That's the one to write up.
-- **Attempt something above your level.** Configure OpenVPN or a site-to-site tunnel. You will fail several times before succeeding.
+- **Have someone else break it.** Hand them the lab and ten minutes. One change, no hints.
+- **Do the extension work** from Step 1B.8. Something will break for real.
+- **Attempt something above your level.** You'll fail several times before succeeding.
 
-When you write it up, be specific about being wrong: what your first theory was, what evidence made it look right, what disproved it, what you had genuinely misunderstood. This is counterintuitive but it's the strongest thing you can put in the repo. It reads as competence and honesty at once, and it's unfakeable.
-
----
-
-## Step 2.5 — The write-up template
-
-Save as `01-troubleshooting-log/case-01-name.md`:
-
-```markdown
-# Case 01 — [Short symptom description]
-
-**Date:** | **Time to resolve:** | **Severity:** [Single user / Subnet / Site-wide]
-
-## 1. Identify the problem
-Reported symptom, scope, what changed recently, questions asked.
-
-## 2. Establish a theory
-Initial theory and the reasoning behind it.
-
-## 3. Test the theory
-[Commands run and their real output in code blocks]
-What each result ruled in or out.
-
-## 4. Plan of action
-What you decided to change and what else it might affect.
-
-## 5. Implement
-[The change]
-
-## 6. Verify
-[Proof it works — commands and output]
-
-## 7. Documentation and lessons
-Root cause in one sentence.
-What I'd check first if I saw this symptom again.
-What I misunderstood before this.
-```
+Write it up with the wrong theories left in: what you thought first, what made it look right, what disproved it, what you'd actually misunderstood. That's unfakeable, and it's the case an interviewer will ask about.
 
 ---
 
 # PART 3 — The Network Audit
 
-**What you're building:** A professional assessment of a real network, plus a costed redesign proposal.
+**What you're building:** a professional assessment of a real network plus a costed redesign.
 
-**Why it's different from the other two:** It's the only project involving real hardware, real interference, real budget constraints, and a real non-technical stakeholder. That's what the job is.
+**Why it's different:** it's the only project with real hardware, real interference, a real budget, and a real non-technical stakeholder. That's the job.
 
 ---
 
-## ⚠️ Read this before you scan anything
+## ⚠️ Before you scan anything
 
-Scan **only** a network you personally own, or one where you have **written permission** from the owner. Port-scanning a network you don't own is a crime in most jurisdictions, including under the US Computer Fraud and Abuse Act. Your own home network is fine. A coffee shop's is not. A friend's is fine *if they say yes* — and get it in writing, because saying you got permission is itself a professional habit worth demonstrating.
+Scan **only** a network you own, or one where you have **written permission**. Unauthorized port scanning is a criminal offense in most jurisdictions, including under the US Computer Fraud and Abuse Act. Your own home network is fine. A coffee shop's is not. A friend's is fine *if they say yes in writing*.
 
-If you audit someone else's network, put a line in the write-up: *"Assessment performed with written authorization from the network owner."* Hiring managers notice that.
+Record it in [`02-network-audit/authorization.md`](../02-network-audit/authorization.md) before you start. Documenting authorization is itself a professional habit worth demonstrating.
 
 ---
 
 ## Step 3.1 — Inventory
 
-Log into your router's admin page (usually `192.168.1.1` or `192.168.0.1` — check `ip route` or `ipconfig` for your gateway). Find the connected devices list.
+Log into your router (usually `192.168.1.1`; check `ip route` for your gateway). Find the connected devices list.
 
-Build a table: device name, type, MAC address, IP address, connection type (wired/wireless), and whether the IP is static or DHCP.
+Cross-check with a host sweep, which catches statically addressed devices the router's list may miss:
 
-**Look for devices you can't identify.** Track every one down. Unidentified devices on a network is itself a finding.
+```bash
+nmap -sn 192.168.1.0/24
+```
+
+Fill in [`inventory.md`](../02-network-audit/inventory.md). **Track down every unidentified device.** An unaccounted-for device is a finding, not a gap.
 
 ---
 
 ## Step 3.2 — Topology diagram
 
-In diagrams.net, draw what's physically there: modem → router → switches → access points → devices. Mark which links are wired and which are wireless. Note the speed of each link if you know it.
-
-**Plain English:** A topology diagram answers "what is connected to what." It's usually the first thing anyone asks for and the thing that's never up to date. Making a good one is a real deliverable.
+In **app.diagrams.net** (free, no account): modem → router → switches → APs → devices. Mark wired vs. wireless and note link speeds. Export to `02-network-audit/diagrams/`.
 
 ---
 
 ## Step 3.3 — Wireless survey
 
-**Plain English on the concept:** Wi-Fi is radio. Radio operates on channels. If your neighbor's network and yours use the same channel, you're both shouting on the same frequency and both get slower. The 2.4 GHz band has only three channels that don't overlap: **1, 6, and 11**. Everything else partially overlaps and makes things worse for everyone.
+**Plain English:** Wi-Fi is radio. Same channel as your neighbour means you're both shouting on the same frequency. In 2.4 GHz only **1, 6, and 11** don't overlap; everything else partially overlaps and makes things worse for everyone.
 
-**Tools:** WiFiman (Android/iOS), Network Analyzer (iOS), or NetSpot (desktop).
+**Tool:** WiFiman or Network Analyzer on your phone.
 
-**Do this:**
-1. Scan and record every network you can see, its channel, and its signal strength.
-2. Note how many networks share your channel.
-3. Walk the space. Record signal strength (in dBm) in each room. Anything weaker than **-70 dBm** is a dead zone.
-4. Note whether you're on 2.4 GHz, 5 GHz, or both, and which standard (Wi-Fi 5 / 802.11ac, Wi-Fi 6 / 802.11ax).
+1. Record every visible network, its channel, and its signal strength.
+2. Count how many share your channel.
+3. Walk the space; record dBm per room.
+4. Note band and standard (Wi-Fi 5 / 802.11ac, Wi-Fi 6 / 802.11ax).
 
-**Reading dBm:** it's negative, and closer to zero is better. -40 is excellent, -60 is fine, -70 is marginal, -80 is unusable.
+**Reading dBm** — negative, closer to zero is better: -40 excellent · -60 fine · -70 marginal · -80 unusable.
 
-**Finding to look for:** you're on a congested channel while 1, 6, or 11 sits nearly empty. That's a free fix and a strong entry in your report.
+**The easy win to look for:** you're on a congested channel while 1, 6, or 11 sits nearly empty. Free fix, strong finding.
+
+Fill in [`wireless-survey.md`](../02-network-audit/wireless-survey.md).
 
 ---
 
 ## Step 3.4 — Firmware and patch status
 
-For every network device — router, access points, switches, anything with an admin page:
-
-- Current firmware version
-- Latest available version from the manufacturer
-- Date of the current version
-- Whether the model is still supported at all
-
-**Concept:** Unpatched network gear is one of the most common real-world attack vectors, and end-of-life hardware never gets fixed. A router that stopped receiving updates in 2019 is a finding regardless of whether it still works.
+For every device with an admin page: current version, latest available, release date, and whether the model is still supported. Unpatched network gear is among the most common real-world attack vectors, and end-of-life hardware never gets fixed. A router that stopped receiving updates in 2019 is a finding whether or not it still works.
 
 ---
 
 ## Step 3.5 — Port and service scan
 
-Install nmap (`sudo apt install nmap`, or nmap.org for Windows).
-
 ```bash
-# Discover live hosts on your network
-nmap -sn 192.168.1.0/24
-
-# Scan one device for open ports and what's running on them
-nmap -sV 192.168.1.1
+nmap -sn 192.168.1.0/24      # what's alive
+nmap -sV 192.168.1.1         # open ports and what's running on them
 ```
 
-**Plain English:** A port is a numbered door on a device, each one belonging to a specific service. Port 80 is web, 443 is secure web, 22 is remote shell, 23 is telnet. An open door isn't automatically bad — but a door you didn't know was open, or one running an insecure protocol, is.
+**Plain English:** a port is a numbered door, each belonging to a service. 80 is web, 443 secure web, 22 SSH, 23 telnet. An open door isn't automatically bad — one you didn't know about, or one running an insecure protocol, is.
 
-**Findings to look for:** telnet (23) open anywhere — it sends passwords in plain text and should be SSH instead. Admin interfaces reachable from the wireless network. UPnP enabled. Any service you can't account for.
+**Look for:** telnet (23) anywhere — it sends passwords in plain text and should be SSH. Admin interfaces reachable from wireless. UPnP enabled. Anything you can't account for.
 
 ---
 
 ## Step 3.6 — Segmentation check
 
-**Plain English:** Segmentation means keeping groups of devices apart so a problem in one group can't spread. A smart TV or doorbell camera sitting on the same flat network as a work laptop means anyone who compromises the cheap camera has a path to the laptop.
+**Plain English:** segmentation keeps groups of devices apart so a problem in one can't spread. A doorbell camera on the same network as a work laptop means compromising the cheap camera gives a path to the laptop.
 
-Check:
 - Is there a guest network? Is it actually isolated, or just a second name on the same network?
 - Are IoT devices separated from computers?
-- Can a guest-network device reach your router's admin page? (Connect to guest Wi-Fi and try. If the admin page loads, that's a significant finding.)
+- **Connect to the guest network and try to load the router's admin page.** If it loads, that's a significant finding.
 
 ---
 
-## Step 3.7 — Write the findings
+## Step 3.7 — Write it up
 
-For each finding: **what it is → why it matters → how bad → what to do.**
+[`findings.md`](../02-network-audit/findings.md) has the structure and a worked example of the right voice. For each: what it is → why it matters → how bad, with reasoning → what to do.
 
-Rate severity **High / Medium / Low** and defend the rating.
+[`redesign-proposal.md`](../02-network-audit/redesign-proposal.md) has the phased plan and cost table.
 
-Example of the right voice:
-
-> **Finding 3 — IoT devices share the primary network (Severity: High)**
-> Six devices (two smart speakers, a thermostat, three cameras) are on the same subnet and broadcast domain as personal computers holding financial documents. Two of the cameras run firmware last updated in 2021 and no longer receive vendor security patches.
-> **Impact:** A vulnerability in any one camera provides an attacker a foothold on the same network segment as sensitive data, with no boundary in between.
-> **Recommendation:** Move all IoT devices to an isolated VLAN or a properly segmented guest SSID with client isolation enabled, and block that segment from initiating connections to the primary network.
-
----
-
-## Step 3.8 — The redesign and the cost
-
-Produce:
-1. **Proposed topology diagram** — what it should look like
-2. **Phased implementation plan** — what to do first, second, third, and why that order (highest risk and lowest cost first)
-3. **Cost table** — real part numbers, real current prices, with a justification sentence per line
-4. **A short "do nothing" section** — what the risk is if none of this happens
-
-**Why the cost table matters more than it looks:** Anyone can say "buy better equipment." Saying "a $34 managed switch resolves findings 3 and 5, and here's why that specific model" is the difference between a student and someone who can be given a budget.
+**The cost table matters more than it looks.** "Buy better equipment" is a student answer. "A $34 TP-Link TL-SG108E resolves findings 2 and 4 because it supports 802.1Q VLANs, which the current all-in-one router does not" is the answer of someone who can be handed a budget.
 
 ---
 
 # Final Checklist
 
-**Lab**
-- [ ] Three VLANs with correct, right-sized subnets
-- [ ] Inter-VLAN routing working
-- [ ] DHCP serving two VLANs, static addressing on management by design
-- [ ] Firewall policy implemented **and tested**, with screenshots of both allow and deny
-- [ ] Internal DNS resolving
-- [ ] Diagram, addressing doc with sizing reasoning, sanitized config export
-- [ ] At least one thing built past the requirements
+**Packet Tracer lab**
+- [ ] Three VLANs, correct access port assignments
+- [ ] Trunk carrying all three, verified with `show interfaces trunk`
+- [ ] Router-on-a-stick subinterfaces, all up/up
+- [ ] DHCP pools serving VLANs 10 and 20; VLAN 30 static by design
+- [ ] ACL with `permit ip any any` present, hit counters screenshotted
+- [ ] `.pkt` file, topology screenshot, both running-configs committed
+
+**Namespace lab**
+- [ ] Script runs clean from nothing
+- [ ] All four policy tests verified — two allows, two denies
+- [ ] At least two tcpdump captures exported as text
+- [ ] DHCP via dnsmasq demonstrated
+- [ ] One extension built past the requirements
 
 **Troubleshooting**
-- [ ] Six cases, all seven methodology steps each
+- [ ] Seven cases, all seven methodology steps each
 - [ ] Real command output, not descriptions of output
-- [ ] At least two Wireshark captures
-- [ ] **At least one unplanned failure with your wrong theories included**
+- [ ] **At least one unplanned failure with the wrong theories left in**
 
 **Audit**
-- [ ] Authorization documented
-- [ ] Device inventory and topology diagram
-- [ ] Wireless survey with channel data and dBm readings by location
-- [ ] Firmware status for every device
-- [ ] Port scan results
-- [ ] Segmentation assessment
-- [ ] Findings with severity ratings and defended reasoning
-- [ ] Redesign with phased plan and costed parts list
+- [ ] Authorization documented before scanning
+- [ ] Inventory, topology, wireless survey, firmware status, port scan, segmentation test
+- [ ] Findings with defended severity ratings
+- [ ] Redesign with phased plan and real part numbers
 
 **Repo**
-- [ ] README complete, no bracketed placeholders left
-- [ ] No real passwords, password hashes, public IPs, or personal addresses anywhere
-- [ ] Diagrams render as images, not links
-- [ ] Every project folder has its own README
+- [ ] No bracketed placeholders left in any README
+- [ ] No passwords, hashes, public IPs, or personal addresses
+- [ ] Setup-brief HTML comments deleted from published case files
+- [ ] Diagrams render as images
