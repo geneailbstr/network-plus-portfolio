@@ -1,0 +1,29 @@
+# Never commit these — they will end up in a public repo
+
+# pfSense config exports contain password hashes. Sanitize before committing.
+*config*.xml
+!*config*.sanitized.xml
+
+# Raw packet captures can contain credentials and personal traffic.
+# Export filtered plain-text dissections into captures/ instead.
+*.pcap
+*.pcapng
+
+# Credentials / keys
+*.key
+*.pem
+*.p12
+credentials*
+secrets*
+.env
+
+# VM artifacts
+*.vdi
+*.vmdk
+*.ova
+*.iso
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
