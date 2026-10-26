@@ -1,7 +1,7 @@
 # Network Engineering Portfolio
 
 **Eugene "Gene" Silva-Davis** — Farmington, NM
-CompTIA Network+ `[certified MM/YYYY | exam scheduled MM/YYYY — pick one]`
+CompTIA Network+ — in progress, self-study
 [lbstrempire.geneai@gmail.com](mailto:lbstrempire.geneai@gmail.com) · [linkedin.com/in/eugene-silva-davis](https://linkedin.com/in/eugene-silva-davis)
 
 Open to: NOC Technician · Network Support Technician · Help Desk (network-focused) · Field Network Technician — remote or San Juan County
@@ -12,9 +12,11 @@ Three hands-on projects built while preparing for Network+. The lab is the found
 
 | Project | What it demonstrates | Status |
 |---|---|---|
-| **[Troubleshooting Case Log](./01-troubleshooting-log/)** | Structured fault isolation, CLI diagnostics, packet analysis | `Not started` |
-| **[Network Audit & Redesign](./02-network-audit/)** | Wireless survey, segmentation, hardening, cost justification | `Not started` |
-| **[Multi-Subnet Virtual Lab](./03-virtual-lab/)** | Subnetting, VLANs, inter-VLAN routing, DHCP/DNS, firewall policy | `Not started` |
+| **[Troubleshooting Case Log](./01-troubleshooting-log/)** | Structured fault isolation, CLI diagnostics, packet analysis | In progress |
+| **[Network Audit & Redesign](./02-network-audit/)** | Wireless survey, segmentation, hardening, cost justification | In progress |
+| **[Multi-Subnet Virtual Lab](./03-virtual-lab/)** | Subnetting, VLANs, inter-VLAN routing, DHCP/DNS, firewall policy | Design complete, build in progress |
+
+> This repository is being built in the open while I study. The addressing scheme and firewall policy are finished design work; the lab build and the case log are in progress. Status above is current.
 
 Full build methodology: **[docs/BUILD-GUIDE.md](./docs/BUILD-GUIDE.md)**
 
