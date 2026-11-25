@@ -4,7 +4,7 @@
 CompTIA Network+ — in progress, self-study
 [lbstrempire.geneai@gmail.com](mailto:lbstrempire.geneai@gmail.com) · [linkedin.com/in/eugene-silva-davis](https://linkedin.com/in/eugene-silva-davis)
 
-Open to: NOC Technician · Network Support Technician · Help Desk (network-focused) · Field Network Technician — remote or San Juan County
+Open to: Help Desk / IT Support · NOC Technician · Network Support Technician · Field Network Technician — remote or San Juan County
 
 ---
 
@@ -57,9 +57,7 @@ Firewall policy and test evidence: [`firewall-policy.md`](./03-virtual-lab/firew
 
 ## Background
 
-`[2–3 sentences. Draft starting point below — rewrite in your own voice.]`
-
-> Over a decade in pipeline services and oilfield operations, where the job was diagnosing failures in the field with incomplete information, documenting what happened, and explaining it to people who needed the outcome rather than the detail. Moving into networking because it is the same work on different infrastructure. Self-taught Python developer; I automate the repetitive parts of whatever I'm doing.
+I spent over ten years in pipeline services and oilfield operations, where the job was figuring out what failed in the field with incomplete information, writing down what happened, and explaining it to people who needed the fix, not the theory. Today I work service tickets every day as a merchandiser for Channel Partners. I'm moving into IT support and networking because it's the same work on different equipment. I hold the Google Cybersecurity Professional Certificate, and I write Python scripts to automate the repetitive parts of whatever I'm doing.
 
 ---
 
